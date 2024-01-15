@@ -1,0 +1,54 @@
+stages:
+  - build
+  - deploy
+
+build:node:
+  stage: build
+  image: node:20
+  cache:
+    key: node-cache
+    paths:
+      - .npm/
+  artifacts:
+    paths:
+      - <path>/dist/
+    expire_in: 10 minutes
+  script:
+    - cd <path>
+    - npm ci --cache .npm --prefer-offline
+    - npx update-browserslist-db@latest
+    - npm i
+    - npm run prod
+  only:
+    - main
+
+build:php:
+  stage: build
+  image: composer:2.6.6
+  cache:
+    key: php-cache
+    paths:
+      - vendor/
+      - modules/
+  artifacts:
+    paths:
+      - vendor/
+      - modules/
+    expire_in: 10 minutes
+  script:
+    - composer install --ignore-platform-reqs --no-dev --optimize-autoloader --no-ansi --no-interaction --no-progress
+  only:
+    - main
+
+deploy:prod:
+  stage: deploy
+  needs: ["build:node", "build:php"]
+  image: alpine:latest
+  before_script:
+    - apk add --update openssh-client bash rsync
+    - mkdir -p ~/.ssh
+    - eval $(ssh-agent -s)
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+  script:
+    - rsync -rz --exclude '.git' --del . <user>@<host>:/home/<user>/<path>
